@@ -66,7 +66,6 @@ async fn finder<'a>(s_del: Sender<Deletable>, path: String) -> RmStuffResult<'a,
     queue.push_back(path.clone());
 
     while let Some(dir) = queue.pop_front() {
-        println!("looking into {}", dir);
         let entries: Vec<Entry> = {
             let mut dir: fs::ReadDir = {
                 match fs::read_dir(dir).await {
