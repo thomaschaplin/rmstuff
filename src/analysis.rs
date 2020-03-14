@@ -10,6 +10,7 @@ use {
 };
 
 use crate::config;
+use crate::error::*;
 
 struct Deletable {
     path: String,
@@ -50,7 +51,7 @@ pub async fn scheduler(conf: config::Config) {
     .await;
 }
 
-async fn finder(s_del: Sender<Deletable>, path: String) {
+async fn finder<'a>(s_del: Sender<Deletable>, path: String) -> RmStuffResult<'a, ()> {
     let markers: Vec<String> = vec!["package.json", "node_modules"]
         .iter()
         .map(|m| m.to_string())
@@ -70,15 +71,15 @@ async fn finder(s_del: Sender<Deletable>, path: String) {
             let mut dir: fs::ReadDir = {
                 match fs::read_dir(dir).await {
                     Ok(d) => d,
-                    _ => return,
+                    _ => return RmStuffResult::Ok(()),
                 }
             };
 
             let mut res = vec![];
             while let Some(Ok(e)) = dir.next().await {
-                let path: String = e.path().to_str().unwrap().to_string();
-                let name: String = e.file_name().to_str().unwrap().to_string();
-                let is_dir: bool = e.metadata().await.unwrap().is_dir();
+                let path: String = e.path().to_str().ok_or_else(|| RmStuffError::new("Could not get file/dir path"))?.to_string();
+                let name: String = e.file_name().to_str().ok_or_else(|| RmStuffError::new("Could not get file/dir name"))?.to_string();
+                let is_dir: bool = e.metadata().await?.is_dir();
 
                 res.push(Entry { path, name, is_dir });
             }
@@ -118,9 +119,11 @@ async fn finder(s_del: Sender<Deletable>, path: String) {
             }
         }
     }
+
+    RmStuffResult::Ok(())
 }
 
-async fn deleter(r_del: Receiver<Deletable>, conf: config::Config) {
+async fn deleter<'a>(r_del: Receiver<Deletable>, conf: config::Config) -> RmStuffResult<'a, ()> {
     let mut deletions = vec![];
     let mut deleted_bytes: u64 = 0;
 
@@ -131,7 +134,7 @@ async fn deleter(r_del: Receiver<Deletable>, conf: config::Config) {
             .output()
             .expect("failed to get size");
 
-        let stdout: String = String::from_utf8(output.stdout).unwrap();
+        let stdout: String = String::from_utf8(output.stdout)?;
         let size_str: String = stdout.split_whitespace().take(1).collect();
 
         if conf.verbose {
@@ -141,8 +144,7 @@ async fn deleter(r_del: Receiver<Deletable>, conf: config::Config) {
         let size_number: u32 = size_str
             .matches(char::is_numeric)
             .collect::<String>()
-            .parse()
-            .unwrap();
+            .parse()?;
         let size_unit: String = size_str.matches(char::is_alphabetic).collect();
         let size_multiplier = match &size_unit[..] {
             "K" => 1024,
@@ -153,10 +155,12 @@ async fn deleter(r_del: Receiver<Deletable>, conf: config::Config) {
 
         let handle = task::spawn(async {
             if d.is_dir {
-                fs::remove_dir_all(d.path).await.unwrap();
+                fs::remove_dir_all(d.path).await?;
             } else {
-                fs::remove_file(d.path).await.unwrap();
+                fs::remove_file(d.path).await?;
             };
+
+            RmStuffResult::Ok(())
         });
 
         deletions.push(handle);
@@ -176,4 +180,6 @@ async fn deleter(r_del: Receiver<Deletable>, conf: config::Config) {
     let units = vec!["b", "K", "M", "G"];
 
     println!("deleted {}{}", unitless_size, units[divided_times]);
+
+    RmStuffResult::Ok(())
 }
