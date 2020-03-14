@@ -8,7 +8,7 @@ For now it detects only JS projects but I plan to add more types soon. In the ca
 
 ## How to use
 
-1. Compile from source
+1. Download the binary from the latest release (macos only) or compile from source
 2. `rmstuff somedir`
 
 To see all the options do `rmstuff --help`.
