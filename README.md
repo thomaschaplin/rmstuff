@@ -1,6 +1,6 @@
 # rmstuff
 
-A *tiny* tool that cleans up your work directories by deleting build artifacts, unecessary dependencies, and non essential stuff in general.
+A **tiny** tool that cleans up your work directories by deleting build artifacts, unecessary dependencies, and non essential stuff in general.
 
 ## How to use
 
