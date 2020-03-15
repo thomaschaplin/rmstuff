@@ -1,46 +1,48 @@
-use async_std::{fs, path::Path};
+use async_std::fs;
 use async_trait::async_trait;
-use std::{borrow::Cow, convert::AsRef, ffi::OsStr, process::Command};
+use std::{borrow::Cow, process::Command};
 
 use crate::error::*;
 
-pub struct Deletable<'a> {
-    pub path: Cow<'a, str>,
-    pub is_dir: bool,
-    pub size: u32,
+pub fn get_size<'a, S: Into<Cow<'a, str>>>(path: S) -> RmStuffResult<u64> {
+    let path_cow = path.into();
+    let output = Command::new("du")
+        .arg("-hs")
+        .arg(path_cow.to_string())
+        .output()
+        .expect("failed to get size");
+
+    let stdout: String = String::from_utf8(output.stdout)?;
+    let size_str: String = stdout.split_whitespace().take(1).collect();
+    let size_number: u64 = size_str
+        .matches(char::is_numeric)
+        .collect::<String>()
+        .parse()?;
+    let size_unit: String = size_str.matches(char::is_alphabetic).collect();
+    let pow = match &size_unit[..] {
+        "K" => 1,
+        "M" => 2,
+        unit => panic!(format!("Unknown unit {}", unit)),
+    };
+
+    Ok(size_number * 1024u64.checked_pow(pow).expect("Size cannot fit in u64"))
 }
 
-impl<'a> Deletable<'a> {
-    pub async fn new<'b, S: Into<Cow<'b, str>> + AsRef<Path> + AsRef<OsStr>>(
-        path: S,
-    ) -> RmStuffResult<'b, Deletable<'b>> {
-        let metadata = fs::metadata(path).await?;
-        let is_dir = metadata.is_dir();
+pub struct Deletable {
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+}
 
-        let output = Command::new("du")
-            .arg("-hs")
-            .arg(path)
-            .output()
-            .expect("failed to get size");
-
-        let stdout: String = String::from_utf8(output.stdout)?;
-        let size_str: String = stdout.split_whitespace().take(1).collect();
-        let size_number: u32 = size_str
-            .matches(char::is_numeric)
-            .collect::<String>()
-            .parse()?;
-        let size_unit: String = size_str.matches(char::is_alphabetic).collect();
-        let size_multiplier = match &size_unit[..] {
-            "K" => 1024,
-            "M" => 1024 * 1024,
-            unit => panic!(format!("Unknown unit {}", unit)),
-        };
-        let size = size_number * size_multiplier;
+impl Deletable {
+    pub async fn new<'a, S: Into<Cow<'a, str>>>(path: S) -> RmStuffResult<Deletable> {
+        let path_cow = path.into();
+        let metadata = fs::metadata(path_cow.to_string()).await?;
 
         Ok(Deletable {
-            path: path.into(),
-            is_dir,
-            size,
+            path: path_cow.to_string(),
+            is_dir: metadata.is_dir(),
+            size: get_size(path_cow)?,
         })
     }
 }
