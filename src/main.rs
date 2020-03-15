@@ -1,19 +1,14 @@
 use {
-    async_std::{
-        fs,
-        prelude::*,
-        sync::{channel, Sender},
-        task,
-    },
-    clap::{App, Arg, SubCommand},
-    std::{env::args, error::Error},
+    async_std::task,
+    clap::{App, Arg},
 };
 
 mod analysis;
 mod config;
+mod detectors;
 mod error;
 
-fn main() -> Result<(), error::RmStuffError<'static>> {
+fn main() -> Result<(), error::RmStuffError> {
     let matches = App::new("rmstuff")
         .version("1.0")
         .author("Stjepan Golemac <stjepan.golemac@gmail.com>")
@@ -35,7 +30,7 @@ fn main() -> Result<(), error::RmStuffError<'static>> {
 
     let conf = config::Config::new(matches)?;
 
-    task::block_on(analysis::scheduler(conf));
+    task::block_on(analysis::scheduler(conf))?;
 
     Ok(())
 }

@@ -1,49 +1,49 @@
-use std::{borrow::Cow, error::Error, fmt};
 use std::convert::From;
 use std::io::Error as IoError;
-use std::string::FromUtf8Error;
 use std::num::ParseIntError;
+use std::string::FromUtf8Error;
+use std::{borrow::Cow, error::Error, fmt};
 
-pub type RmStuffResult<'a, T> = Result<T, RmStuffError<'a>>;
+pub type RmStuffResult<T> = Result<T, RmStuffError>;
 
 #[derive(Debug)]
-pub struct RmStuffError<'a> {
-    details: Cow<'a, str>,
+pub struct RmStuffError {
+    details: String,
 }
 
-impl<'a> RmStuffError<'a> {
-    pub fn new<S>(details: S) -> RmStuffError<'a>
+impl RmStuffError {
+    pub fn new<'a, S>(details: S) -> RmStuffError
     where
         S: Into<Cow<'a, str>>,
     {
         RmStuffError {
-            details: details.into(),
+            details: details.into().to_string(),
         }
     }
 }
 
-impl<'a> fmt::Display for RmStuffError<'a> {
+impl fmt::Display for RmStuffError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.details)
     }
 }
 
-impl<'a> Error for RmStuffError<'a> {}
+impl Error for RmStuffError {}
 
-impl<'a> From<IoError> for RmStuffError<'a> {
-    fn from (e: IoError) -> RmStuffError<'a> {
+impl From<IoError> for RmStuffError {
+    fn from(e: IoError) -> RmStuffError {
         RmStuffError::new(e.to_string())
     }
 }
 
-impl<'a> From<FromUtf8Error> for RmStuffError<'a> {
-    fn from (e: FromUtf8Error) -> RmStuffError<'a> {
+impl From<FromUtf8Error> for RmStuffError {
+    fn from(e: FromUtf8Error) -> RmStuffError {
         RmStuffError::new(e.to_string())
     }
 }
 
-impl<'a> From<ParseIntError> for RmStuffError<'a> {
-    fn from (e: ParseIntError) -> RmStuffError<'a> {
+impl From<ParseIntError> for RmStuffError {
+    fn from(e: ParseIntError) -> RmStuffError {
         RmStuffError::new(e.to_string())
     }
 }

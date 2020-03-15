@@ -10,48 +10,21 @@ use {
 };
 
 use crate::config;
+use crate::detectors::*;
 use crate::error::*;
 
-struct Deletable {
-    path: String,
-    is_dir: bool,
-    size: u32,
-}
-
-impl Deletable {
-    pub fn new(path: String, is_dir: bool) -> Self {
-        Deletable {
-            path,
-            is_dir,
-            size: 0,
-        }
-    }
-}
-
-#[derive(Clone)]
-struct Entry {
-    path: String,
-    name: String,
-    is_dir: bool,
-}
-
-pub async fn scheduler(conf: config::Config) {
-    let deleterConf = conf.clone();
+pub async fn scheduler(conf: config::Config) -> RmStuffResult<()> {
+    let deleter_conf = conf.clone();
 
     let (s_del, r_del) = channel::<Deletable>(1024);
-    let (s_dir, r_dir) = channel::<String>(1024);
 
-    task::spawn(async move {
-        finder(s_del.clone(), conf.dir.clone()).await;
-    });
+    task::spawn(finder(s_del.clone(), conf.dir.clone()));
+    task::spawn(deleter(r_del, deleter_conf)).await?;
 
-    task::spawn(async move {
-        deleter(r_del, deleterConf).await;
-    })
-    .await;
+    Ok(())
 }
 
-async fn finder<'a>(s_del: Sender<Deletable>, path: String) -> RmStuffResult<'a, ()> {
+async fn finder(s_del: Sender<Deletable>, path: String) -> RmStuffResult<()> {
     let markers: Vec<String> = vec!["package.json", "node_modules"]
         .iter()
         .map(|m| m.to_string())
@@ -76,8 +49,16 @@ async fn finder<'a>(s_del: Sender<Deletable>, path: String) -> RmStuffResult<'a,
 
             let mut res = vec![];
             while let Some(Ok(e)) = dir.next().await {
-                let path: String = e.path().to_str().ok_or_else(|| RmStuffError::new("Could not get file/dir path"))?.to_string();
-                let name: String = e.file_name().to_str().ok_or_else(|| RmStuffError::new("Could not get file/dir name"))?.to_string();
+                let path: String = e
+                    .path()
+                    .to_str()
+                    .ok_or_else(|| RmStuffError::new("Could not get file/dir path"))?
+                    .to_string();
+                let name: String = e
+                    .file_name()
+                    .to_str()
+                    .ok_or_else(|| RmStuffError::new("Could not get file/dir name"))?
+                    .to_string();
                 let is_dir: bool = e.metadata().await?.is_dir();
 
                 res.push(Entry { path, name, is_dir });
@@ -95,12 +76,21 @@ async fn finder<'a>(s_del: Sender<Deletable>, path: String) -> RmStuffResult<'a,
 
         if is_positive {
             let deletables: Vec<Deletable> = {
-                entries
+                let paths: Vec<String> = entries
                     .clone()
                     .into_iter()
                     .filter(|e| candidates.iter().any(|c| e.path.ends_with(c)))
-                    .map(|e| Deletable::new(e.path, e.is_dir))
-                    .collect()
+                    .map(|e| e.path)
+                    .collect();
+
+                let mut paths_iter = paths.iter();
+                let mut ds = vec![];
+                while let Some(p) = paths_iter.next() {
+                    ds.push(Deletable::new(p.to_string()).await?);
+                }
+                // .map(|e| Deletable::new(e.path))
+
+                ds
             };
 
             let mut iter = deletables.into_iter();
@@ -108,7 +98,8 @@ async fn finder<'a>(s_del: Sender<Deletable>, path: String) -> RmStuffResult<'a,
                 s_del.send(d).await;
             }
         } else {
-            let mut subdirs = entries.iter()
+            let mut subdirs = entries
+                .iter()
                 // TODO figure out why it doesn't go into src in tray-academy
                 .filter(|e| !candidates.contains(&e.name))
                 .filter(|e| e.is_dir);
@@ -122,14 +113,14 @@ async fn finder<'a>(s_del: Sender<Deletable>, path: String) -> RmStuffResult<'a,
     RmStuffResult::Ok(())
 }
 
-async fn deleter<'a>(r_del: Receiver<Deletable>, conf: config::Config) -> RmStuffResult<'a, ()> {
+async fn deleter(r_del: Receiver<Deletable>, conf: config::Config) -> RmStuffResult<()> {
     let mut deletions = vec![];
     let mut deleted_bytes: u64 = 0;
 
     while let Some(d) = r_del.recv().await {
         let output = Command::new("du")
             .arg("-hs")
-            .arg(d.path.clone())
+            .arg(d.path.to_string())
             .output()
             .expect("failed to get size");
 
@@ -152,11 +143,11 @@ async fn deleter<'a>(r_del: Receiver<Deletable>, conf: config::Config) -> RmStuf
         };
         let size = size_number * size_multiplier;
 
-        let handle = task::spawn(async {
+        let handle = task::spawn(async move {
             if d.is_dir {
-                fs::remove_dir_all(d.path).await?;
+                fs::remove_dir_all(d.path.to_string()).await?;
             } else {
-                fs::remove_file(d.path).await?;
+                fs::remove_file(d.path.to_string()).await?;
             };
 
             RmStuffResult::Ok(())
