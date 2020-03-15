@@ -1,17 +1,12 @@
 use {
-    async_std::{
-        fs,
-        prelude::*,
-        sync::{channel, Sender},
-        task,
-    },
-    clap::{App, Arg, SubCommand},
-    std::{env::args, error::Error},
+    async_std::task,
+    clap::{App, Arg},
 };
 
 mod analysis;
 mod config;
 mod error;
+mod detectors;
 
 fn main() -> Result<(), error::RmStuffError<'static>> {
     let matches = App::new("rmstuff")
