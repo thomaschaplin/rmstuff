@@ -6,12 +6,13 @@ use {
         task,
     },
     futures::future::join_all,
-    std::{char, collections::VecDeque, process::Command},
+    std::collections::VecDeque,
 };
 
 use crate::config;
 use crate::detectors::*;
 use crate::error::*;
+use crate::size::FileSize;
 
 pub async fn scheduler(conf: config::Config) -> RmStuffResult<()> {
     let deleter_conf = conf.clone();
@@ -110,30 +111,11 @@ async fn deleter(r_del: Receiver<Deletable>, conf: config::Config) -> RmStuffRes
     let mut deleted_bytes: u64 = 0;
 
     while let Some(d) = r_del.recv().await {
-        let output = Command::new("du")
-            .arg("-hs")
-            .arg(d.path.to_string())
-            .output()
-            .expect("failed to get size");
-
-        let stdout: String = String::from_utf8(output.stdout)?;
-        let size_str: String = stdout.split_whitespace().take(1).collect();
+        let size = get_size(d.path.clone())?;
 
         if conf.verbose {
-            println!("{}\t {}", d.path.clone(), size_str);
+            println!("{}\t {}", d.path.clone(), size.bytes());
         }
-
-        let size_number: u32 = size_str
-            .matches(char::is_numeric)
-            .collect::<String>()
-            .parse()?;
-        let size_unit: String = size_str.matches(char::is_alphabetic).collect();
-        let size_multiplier = match &size_unit[..] {
-            "K" => 1024,
-            "M" => 1024 * 1024,
-            unit => panic!(format!("Unknown unit {}", unit)),
-        };
-        let size = size_number * size_multiplier;
 
         let handle = task::spawn(async move {
             if d.is_dir {
@@ -147,21 +129,14 @@ async fn deleter(r_del: Receiver<Deletable>, conf: config::Config) -> RmStuffRes
 
         deletions.push(handle);
 
-        deleted_bytes += size as u64;
+        deleted_bytes += size.bytes();
     }
 
     join_all(deletions).await;
 
-    let mut unitless_size = deleted_bytes;
-    let mut divided_times = 0;
-    while unitless_size > 1024 {
-        unitless_size /= 1024;
-        divided_times += 1;
-    }
+    let total_size = FileSize::new(deleted_bytes);
 
-    let units = vec!["b", "K", "M", "G"];
-
-    println!("deleted {}{}", unitless_size, units[divided_times]);
+    println!("deleted {}", total_size);
 
     RmStuffResult::Ok(())
 }

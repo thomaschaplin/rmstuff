@@ -3,11 +3,12 @@ use async_trait::async_trait;
 use std::{borrow::Cow, process::Command};
 
 use crate::error::*;
+use crate::size::FileSize;
 
-pub fn get_size<'a, S: Into<Cow<'a, str>>>(path: S) -> RmStuffResult<u64> {
+pub fn get_size<'a, S: Into<Cow<'a, str>>>(path: S) -> RmStuffResult<FileSize> {
     let path_cow = path.into();
     let output = Command::new("du")
-        .arg("-hs")
+        .arg("-ks")
         .arg(path_cow.to_string())
         .output()
         .expect("failed to get size");
@@ -18,21 +19,15 @@ pub fn get_size<'a, S: Into<Cow<'a, str>>>(path: S) -> RmStuffResult<u64> {
         .matches(char::is_numeric)
         .collect::<String>()
         .parse()?;
-    let size_unit: String = size_str.matches(char::is_alphabetic).collect();
-    let pow = match &size_unit[..] {
-        "K" => 1,
-        "M" => 2,
-        unit => panic!(format!("Unknown unit {}", unit)),
-    };
 
-    Ok(size_number * 1024u64.checked_pow(pow).expect("Size cannot fit in u64"))
+    Ok(FileSize::new(size_number * 1024))
 }
 
 #[derive(Debug)]
 pub struct Deletable {
     pub path: String,
     pub is_dir: bool,
-    pub size: u64,
+    pub size: FileSize,
 }
 
 impl Deletable {
