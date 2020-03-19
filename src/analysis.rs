@@ -18,7 +18,7 @@ pub async fn scheduler(conf: config::Config) -> RmStuffResult<()> {
 
     let (s_del, r_del) = channel::<Deletable>(1024);
 
-    task::spawn(finder(s_del.clone(), conf.dir.clone()));
+    task::spawn(finder(s_del, conf.dir.clone()));
     task::spawn(deleter(r_del, deleter_conf)).await?;
 
     Ok(())
@@ -29,7 +29,6 @@ async fn finder(s_del: Sender<Deletable>, path: String) -> RmStuffResult<()> {
         .iter()
         .map(|m| m.to_string())
         .collect();
-
     let candidates: Vec<String> = vec!["node_modules", "dist", "public", ".cache"]
         .iter()
         .map(|m| m.to_string())
@@ -54,14 +53,8 @@ async fn finder(s_del: Sender<Deletable>, path: String) -> RmStuffResult<()> {
                     .to_str()
                     .ok_or_else(|| RmStuffError::new("Could not get file/dir path"))?
                     .to_string();
-                let name: String = e
-                    .file_name()
-                    .to_str()
-                    .ok_or_else(|| RmStuffError::new("Could not get file/dir name"))?
-                    .to_string();
-                let is_dir: bool = e.metadata().await?.is_dir();
 
-                res.push(Entry { path, name, is_dir });
+                res.push(Entry::new(path).await?);
             }
 
             res
@@ -79,7 +72,7 @@ async fn finder(s_del: Sender<Deletable>, path: String) -> RmStuffResult<()> {
                 let paths: Vec<String> = entries
                     .clone()
                     .into_iter()
-                    .filter(|e| candidates.iter().any(|c| e.path.ends_with(c)))
+                    .filter(|e| candidates.iter().any(|c| &e.name == c))
                     .map(|e| e.path)
                     .collect();
 
@@ -88,7 +81,6 @@ async fn finder(s_del: Sender<Deletable>, path: String) -> RmStuffResult<()> {
                 while let Some(p) = paths_iter.next() {
                     ds.push(Deletable::new(p.to_string()).await?);
                 }
-                // .map(|e| Deletable::new(e.path))
 
                 ds
             };

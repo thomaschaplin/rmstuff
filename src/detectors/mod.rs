@@ -28,6 +28,7 @@ pub fn get_size<'a, S: Into<Cow<'a, str>>>(path: S) -> RmStuffResult<u64> {
     Ok(size_number * 1024u64.checked_pow(pow).expect("Size cannot fit in u64"))
 }
 
+#[derive(Debug)]
 pub struct Deletable {
     pub path: String,
     pub is_dir: bool,
@@ -52,6 +53,26 @@ pub struct Entry {
     pub path: String,
     pub name: String,
     pub is_dir: bool,
+}
+
+impl Entry {
+    pub async fn new<'a, S: Into<Cow<'a, str>>>(path: S) -> RmStuffResult<Entry> {
+        let path_cow = path.into();
+        let metadata = fs::metadata(path_cow.to_string()).await?;
+
+        let name = {
+            match path_cow.to_string().split("/").last() {
+                Some(part) => part.to_string(),
+                None => panic!("Cannot determine the file name"),
+            }
+        };
+
+        Ok(Entry {
+            path: path_cow.to_string(),
+            name,
+            is_dir: metadata.is_dir(),
+        })
+    }
 }
 
 #[async_trait]
