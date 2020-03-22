@@ -10,6 +10,8 @@ use structopt::StructOpt;
 pub struct Config {
     #[structopt(short, long)]
     pub verbose: bool,
+    #[structopt(short, long)]
+    pub dry_run: bool,
     pub dir: String,
 }
 

@@ -109,6 +109,7 @@ async fn finder(s_del: Sender<Deletable>, path: String) -> RmStuffResult<()> {
 async fn deleter(r_del: Receiver<Deletable>, conf: config::Config) -> RmStuffResult<()> {
     let mut deletions = vec![];
     let mut deleted_bytes: u64 = 0;
+    let is_dry_run = conf.dry_run;
 
     while let Some(d) = r_del.recv().await {
         let size = get_size(d.path.clone())?;
@@ -118,7 +119,9 @@ async fn deleter(r_del: Receiver<Deletable>, conf: config::Config) -> RmStuffRes
         }
 
         let handle = task::spawn(async move {
-            if d.is_dir {
+            if is_dry_run {
+                return RmStuffResult::Ok(());
+            } else if d.is_dir {
                 fs::remove_dir_all(d.path.to_string()).await?;
             } else {
                 fs::remove_file(d.path.to_string()).await?;
@@ -136,7 +139,11 @@ async fn deleter(r_del: Receiver<Deletable>, conf: config::Config) -> RmStuffRes
 
     let total_size = FileSize::new(deleted_bytes);
 
-    println!("deleted {}", total_size);
+    if is_dry_run {
+        println!("would delete {}", total_size);
+    } else {
+        println!("deleted {}", total_size);
+    };
 
     RmStuffResult::Ok(())
 }

@@ -14,7 +14,7 @@ impl FileSize {
         self.bytes
     }
 
-    fn closest_unit(&self) -> String {
+    fn human_readable_output(&self) -> String {
         let units = vec!["b", "K", "M", "G"];
         let mut unitless_size = self.bytes as f64;
         let mut divided_times = 0;
@@ -24,12 +24,16 @@ impl FileSize {
             divided_times += 1;
         }
 
-        units[divided_times].to_string()
+        format!(
+            "{}{}",
+            unitless_size.round(),
+            units[divided_times].to_string()
+        )
     }
 }
 
 impl fmt::Display for FileSize {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}", self.bytes, self.closest_unit())
+        write!(f, "{}", self.human_readable_output())
     }
 }
