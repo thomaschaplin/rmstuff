@@ -1,9 +1,11 @@
 use async_std::fs;
-use async_trait::async_trait;
 use std::{borrow::Cow, process::Command};
+use trait_async::trait_async;
 
 use crate::error::*;
 use crate::size::FileSize;
+
+pub mod javascript;
 
 pub fn get_size<'a, S: Into<Cow<'a, str>>>(path: S) -> RmStuffResult<FileSize> {
     let path_cow = path.into();
@@ -70,7 +72,35 @@ impl Entry {
     }
 }
 
-#[async_trait]
-trait Detector {
-    async fn deletables(&self, e: Entry) -> Option<Vec<Deletable>>;
+#[trait_async]
+pub trait Detector: Send + Sync {
+    fn markers(&self) -> Vec<String>;
+    fn deletables(&self) -> Vec<String>;
+
+    async fn find_deletables(&self, entries: &Vec<Entry>) -> RmStuffResult<Option<Vec<Deletable>>> {
+        let is_positive: bool = entries
+            .iter()
+            .map(|e| &e.path)
+            .any(|p| self.markers().iter().any(|m| p.contains(m)));
+
+        match is_positive {
+            false => Ok(None),
+            true => {
+                let paths: Vec<String> = entries
+                    .clone()
+                    .into_iter()
+                    .filter(|e| self.deletables().iter().any(|c| &e.name == c))
+                    .map(|e| e.path)
+                    .collect();
+
+                let mut paths_iter = paths.iter();
+                let mut ds = vec![];
+                while let Some(p) = paths_iter.next() {
+                    ds.push(Deletable::new(p.to_string()).await?);
+                }
+
+                Ok(Some(ds))
+            }
+        }
+    }
 }
