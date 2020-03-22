@@ -20,9 +20,9 @@ use crate::detectors::javascript::Javascript;
 pub async fn scheduler(conf: config::Config) -> RmStuffResult<()> {
     let deleter_conf = conf.clone();
 
-    let (s_del, r_del) = channel::<detectors::Deletable>(1024);
+    let (s_del, r_del) = channel::<detectors::Deletable>(128);
 
-    task::spawn(finder(s_del, conf.dir.clone()));
+    task::spawn(finder(s_del, conf.dir));
     task::spawn(deleter(r_del, deleter_conf)).await?;
 
     Ok(())
@@ -79,6 +79,7 @@ async fn finder(s_del: Sender<detectors::Deletable>, path: String) -> RmStuffRes
                 .iter()
                 // TODO figure out why it doesn't go into src in tray-academy,
                 // also make sure we don't search in dirs that will be deleted
+                // This could be responsible for that perf regresion
                 // .filter(|e| !candidates.contains(&e.name))
                 .filter(|e| e.is_dir);
 
