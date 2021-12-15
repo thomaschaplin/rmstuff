@@ -74,27 +74,27 @@ async fn finder(s_del: Sender<Deletable>, path: String) -> RmStuffResult<()> {
                     .map(|e| e.path)
                     .collect();
 
-                let mut paths_iter = paths.iter();
+                let paths_iter = paths.iter();
                 let mut ds = vec![];
-                while let Some(p) = paths_iter.next() {
+                for p in paths_iter {
                     ds.push(Deletable::new(p.to_string()).await?);
                 }
 
                 ds
             };
 
-            let mut iter = deletables.into_iter();
-            while let Some(d) = iter.next() {
+            let iter = deletables.into_iter();
+            for d in iter {
                 s_del.send(d).await;
             }
         } else {
-            let mut subdirs = entries
+            let subdirs = entries
                 .iter()
                 // TODO figure out why it doesn't go into src in tray-academy
                 .filter(|e| !candidates.contains(&e.name))
                 .filter(|e| e.is_dir);
 
-            while let Some(subd) = subdirs.next() {
+            for subd in subdirs {
                 queue.push_back(subd.path.clone());
             }
         }
