@@ -56,7 +56,7 @@ impl Entry {
         let metadata = fs::metadata(path_cow.to_string()).await?;
 
         let name = {
-            match path_cow.to_string().split("/").last() {
+            match path_cow.to_string().split('/').last() {
                 Some(part) => part.to_string(),
                 None => panic!("Cannot determine the file name"),
             }
