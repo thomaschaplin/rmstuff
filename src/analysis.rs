@@ -30,10 +30,7 @@ async fn finder(s_del: Sender<Deletable>, path: String) -> RmStuffResult<()> {
         .iter()
         .map(|m| m.to_string())
         .collect();
-    let candidates: Vec<String> = vec!["node_modules", "dist", "public", ".cache"]
-        .iter()
-        .map(|m| m.to_string())
-        .collect();
+    let candidates: Vec<String> = vec!["node_modules"].iter().map(|m| m.to_string()).collect();
     let mut queue: VecDeque<String> = VecDeque::new();
 
     queue.push_back(path.clone());
