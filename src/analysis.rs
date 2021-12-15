@@ -6,40 +6,36 @@ use {
         task,
     },
     futures::future::join_all,
+    std::boxed::Box,
     std::collections::VecDeque,
 };
 
 use crate::config;
-use crate::detectors::*;
+use crate::detectors;
 use crate::error::*;
 use crate::size::FileSize;
+
+use crate::detectors::javascript::Javascript;
 
 pub async fn scheduler(conf: config::Config) -> RmStuffResult<()> {
     let deleter_conf = conf.clone();
 
-    let (s_del, r_del) = channel::<Deletable>(1024);
+    let (s_del, r_del) = channel::<detectors::Deletable>(128);
 
-    task::spawn(finder(s_del, conf.dir.clone()));
+    task::spawn(finder(s_del, conf.dir));
     task::spawn(deleter(r_del, deleter_conf)).await?;
 
     Ok(())
 }
 
-async fn finder(s_del: Sender<Deletable>, path: String) -> RmStuffResult<()> {
-    let markers: Vec<String> = vec!["package.json", "node_modules"]
-        .iter()
-        .map(|m| m.to_string())
-        .collect();
-    let candidates: Vec<String> = vec!["node_modules", "dist", "public", ".cache"]
-        .iter()
-        .map(|m| m.to_string())
-        .collect();
+async fn finder(s_del: Sender<detectors::Deletable>, path: String) -> RmStuffResult<()> {
+    let detects: Vec<Box<dyn detectors::Detector>> = vec![Box::new(Javascript::new())];
     let mut queue: VecDeque<String> = VecDeque::new();
 
     queue.push_back(path.clone());
 
     while let Some(dir) = queue.pop_front() {
-        let entries: Vec<Entry> = {
+        let entries: Vec<detectors::Entry> = {
             let mut dir: fs::ReadDir = {
                 match fs::read_dir(dir).await {
                     Ok(d) => d,
@@ -55,37 +51,25 @@ async fn finder(s_del: Sender<Deletable>, path: String) -> RmStuffResult<()> {
                     .ok_or_else(|| RmStuffError::new("Could not get file/dir path"))?
                     .to_string();
 
-                res.push(Entry::new(path).await?);
+                res.push(detectors::Entry::new(path).await?);
             }
 
             res
         };
 
-        let is_positive: bool = {
-            entries
-                .iter()
-                .map(|e| &e.path)
-                .any(|p| markers.iter().any(|m| p.contains(m)))
-        };
+        let find_futures = detects.iter().map(|d| d.find_deletables(&entries));
+        let find_results: Vec<RmStuffResult<Option<Vec<detectors::Deletable>>>> =
+            join_all(find_futures).await;
 
-        if is_positive {
-            let deletables: Vec<Deletable> = {
-                let paths: Vec<String> = entries
-                    .clone()
-                    .into_iter()
-                    .filter(|e| candidates.iter().any(|c| &e.name == c))
-                    .map(|e| e.path)
-                    .collect();
+        let deletables: Vec<detectors::Deletable> = find_results
+            .into_iter()
+            .flat_map(|r| match r {
+                Ok(Some(deletables)) => deletables,
+                _ => vec![],
+            })
+            .collect();
 
-                let mut paths_iter = paths.iter();
-                let mut ds = vec![];
-                while let Some(p) = paths_iter.next() {
-                    ds.push(Deletable::new(p.to_string()).await?);
-                }
-
-                ds
-            };
-
+        if deletables.len() > 0 {
             let mut iter = deletables.into_iter();
             while let Some(d) = iter.next() {
                 s_del.send(d).await;
@@ -93,8 +77,10 @@ async fn finder(s_del: Sender<Deletable>, path: String) -> RmStuffResult<()> {
         } else {
             let mut subdirs = entries
                 .iter()
-                // TODO figure out why it doesn't go into src in tray-academy
-                .filter(|e| !candidates.contains(&e.name))
+                // TODO figure out why it doesn't go into src in tray-academy,
+                // also make sure we don't search in dirs that will be deleted
+                // This could be responsible for that perf regresion
+                // .filter(|e| !candidates.contains(&e.name))
                 .filter(|e| e.is_dir);
 
             while let Some(subd) = subdirs.next() {
@@ -106,13 +92,13 @@ async fn finder(s_del: Sender<Deletable>, path: String) -> RmStuffResult<()> {
     RmStuffResult::Ok(())
 }
 
-async fn deleter(r_del: Receiver<Deletable>, conf: config::Config) -> RmStuffResult<()> {
+async fn deleter(r_del: Receiver<detectors::Deletable>, conf: config::Config) -> RmStuffResult<()> {
     let mut deletions = vec![];
     let mut deleted_bytes: u64 = 0;
     let is_dry_run = conf.dry_run;
 
     while let Some(d) = r_del.recv().await {
-        let size = get_size(d.path.clone())?;
+        let size = detectors::get_size(d.path.clone())?;
 
         if conf.verbose {
             println!("{}\t {}", d.path.clone(), size.bytes());
